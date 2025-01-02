@@ -1,4 +1,6 @@
 subGraphDevelopement/.venv
 subGraphDevelopement/jupyterNotebook/graphdata
 subGraphDevelopement/jupyterNotebook/.ipynb_checkpoints
+subGraphDevelopement/sourceData
+subGraphDevelopement/processedData
 .DS_Store
