@@ -1,7 +1,8 @@
+from gSpanAlgorithm.gSpan.gspan_mining import gSpan
 import os
 import logging
-from gSpanAlgorithm.gSpan.gspan_mining import gSpan
-
+import networkx as nx
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -57,7 +58,7 @@ def process_dataset(dataset, dataset_dir):
     except Exception as e:
         logging.error(f"Error in process_dataset: {e}")
 
-def reformat_graph(subject_idx, matrices, edge_threshold=1, vertex_label=1000):
+def reformat_graph(subject_idx, matrices, edge_threshold=0, vertex_label=1000):
     """
     Formats graphs for a single subject across multiple matrices (time windows).
 
@@ -74,12 +75,12 @@ def reformat_graph(subject_idx, matrices, edge_threshold=1, vertex_label=1000):
         formatted_data = []
 
         for window_idx, matrix in enumerate(matrices):
-            formatted_data.append(f"t # {subject_idx}_{window_idx}")  # Graph identifier (subject + window)
+            formatted_data.append(f"t # {subject_idx}{window_idx}")  # Graph identifier (subject + window)
 
             num_vertices = matrix.shape[0]  # Number of vertices
             # Add vertex information with unique labels
             for vertex in range(num_vertices):
-                formatted_data.append(f"v {vertex} {vertex}")  # Unique label for each vertex is its index
+                formatted_data.append(f"v {vertex} {vertex+2}")  # Unique label for each vertex is its index
 
             # Add edge information
             for i in range(num_vertices):
@@ -150,3 +151,37 @@ def run_gspan_on_patients(condition_path, params):
                     gs.save_results(input_file)
     except Exception as e:
         logging.error(f"Error in run_gspan_on_patients: {e}")
+
+def parse_subgraph_file(file_path):
+    motifs = []
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+        motif = None
+        for line in lines:
+            if line.startswith('t #'):
+                if motif:
+                    motifs.append(motif)
+                motif = {'vertices': [], 'edges': [], 'support': 0}
+            elif line.startswith('v'):
+                parts = line.split()
+                motif['vertices'].append((int(parts[1]), int(parts[2])))
+            elif line.startswith('e'):
+                parts = line.split()
+                motif['edges'].append((int(parts[1]), int(parts[2]), int(parts[3])))
+            elif line.startswith('Support:'):
+                motif['support'] = int(line.split()[1])
+        if motif:
+            motifs.append(motif)
+    return motifs
+
+def build_weighted_directed_graph(motifs):
+    G = nx.DiGraph()
+    for motif in motifs:
+        support = motif['support']
+        for edge in motif['edges']:
+            frm, to, label = edge
+            if G.has_edge(frm, to):
+                G[frm][to]['weight'] += support
+            else:
+                G.add_edge(frm, to, weight=support)
+    return G

@@ -1,5 +1,8 @@
-from data_loading import load_patients_EEG_data
-from data_processing import reformat_data, run_gspan_on_patients
+from .process_data import reformat_data, run_gspan_on_patients
+from .load_data import load_patients_EEG_data
+
+from gSpanAlgorithm.gSpan.gspan_mining import gSpan
+
 import os
 
 def run_gspan(base_dir):
@@ -22,13 +25,14 @@ def run_gspan(base_dir):
 
 def main():
     # Step 1: Define paths and parameters
+    input_dir = "/Users/pegz/Desktop/BachelorProject/sourceData/"
     output_dir = "/Users/pegz/Desktop/BachelorProject/BSc2024/subGraphDevelopement/processedData"
 
 
     # Step 2: Load data
     try:
         print("Loading data...")
-        # data_dict = load_patients_EEG_data()
+        data_dict = load_patients_EEG_data(input_dir)
         print("Data loading complete.")
     except Exception as e:
         print(f"Error loading data: {e}")
@@ -37,7 +41,7 @@ def main():
     # Step 3: Process and save formatted data
     try:
         print("Processing and formatting data...")
-        # reformat_data(data_dict, output_dir)
+        reformat_data(data_dict, output_dir)
         print("Data processing complete.")
     except Exception as e:
         print(f"Error processing data: {e}")
