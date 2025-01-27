@@ -15,6 +15,7 @@ gSpan minning on each patient's time-windows to find repeated motifs
 * t # -1 must at the end of each file not each matrix (all time windows of a patient) 
 * not saving the subgraphs
 * issues with python interpreter with gspan-minning library -> to use in the command that is run 1000s of times
+
 first subgraph output (emailed):
 t # 1
 v 0 0 

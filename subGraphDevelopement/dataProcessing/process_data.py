@@ -2,12 +2,12 @@ from gSpanAlgorithm.gSpan.gspan_mining import gSpan
 import os
 import logging
 import networkx as nx
-import re
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def reformat_data(data_dict, output_dir):
+def export_transformed_datastructure(data_dict, output_dir):
     """
     Iterates through all datasets in the data dictionary, processes them, and saves the formatted data.
 
@@ -18,14 +18,14 @@ def reformat_data(data_dict, output_dir):
     try:
         ensure_directory_exists(output_dir)
         for dataset_name, dataset in data_dict.items():
-            logging.info(f"Processing dataset: {dataset_name}")
+            logging.info(f"transforming dataset: {dataset_name}")
             dataset_dir = os.path.join(output_dir, dataset_name)
             ensure_directory_exists(dataset_dir)
-            process_dataset(dataset, dataset_dir)
+            transform_original_dataset_structure(dataset, dataset_dir)
     except Exception as e:
-        logging.error(f"Error in reformat_data: {e}")
+        logging.error(f"Error in export_transformed_datastructure: {e}")
 
-def process_dataset(dataset, dataset_dir):
+def transform_original_dataset_structure(dataset, dataset_dir):
     """
     Processes a single dataset, formatting the data for all patients and saving it.
 
@@ -44,7 +44,7 @@ def process_dataset(dataset, dataset_dir):
             patient_time_series = [patient_data[:, :, w] for w in range(patient_data.shape[2])] # List of 2D matrices
 
             # Format graphs for all matrices of this patient
-            formatted_data = reformat_graph(patient_idx, patient_time_series)
+            formatted_data = transform_patient_timeseries_matrices(patient_idx, patient_time_series)
 
             # Create a subdirectory for the patient
             patient_dir = os.path.join(dataset_dir, f"patient_{patient_idx}")
@@ -54,11 +54,11 @@ def process_dataset(dataset, dataset_dir):
             output_file = os.path.join(patient_dir, f"patient_{patient_idx}.txt")
             with open(output_file, 'w') as f:
                 f.write("\n".join(formatted_data))
-            logging.info(f"Saved formatted data for patient {patient_idx} in {output_file}")
+            logging.info(f"Saved transformed data for patient {patient_idx} in {output_file}")
     except Exception as e:
-        logging.error(f"Error in process_dataset: {e}")
+        logging.error(f"Error in transform_original_dataset_structure: {e}")
 
-def reformat_graph(subject_idx, matrices, edge_threshold=0, vertex_label=1000):
+def transform_patient_timeseries_matrices(subject_idx, matrices, edge_threshold=0, vertex_label=1000):
     """
     Formats graphs for a single subject across multiple matrices (time windows).
 
@@ -80,8 +80,13 @@ def reformat_graph(subject_idx, matrices, edge_threshold=0, vertex_label=1000):
             num_vertices = matrix.shape[0]  # Number of vertices
             # Add vertex information with unique labels
             for vertex in range(num_vertices):
-                formatted_data.append(f"v {vertex} {vertex+2}")  # Unique label for each vertex is its index
 
+                vertex_label = vertex +1 # Unique label for each vertex is its index +2 : labels>1
+                if vertex < 0 or vertex > 18:
+                    logging.error(f"Vertex out of range: {vertex_label} patient: {subject_idx} window: {window_idx}")
+                if  vertex_label > 19:
+                    logging.error(f"Vertex label out of range: {vertex_label} patient: {subject_idx} window: {window_idx}")
+                formatted_data.append(f"v {vertex} {vertex_label}") 
             # Add edge information
             for i in range(num_vertices):
                 for j in range(num_vertices):
@@ -152,19 +157,31 @@ def run_gspan_on_patients(condition_path, params):
     except Exception as e:
         logging.error(f"Error in run_gspan_on_patients: {e}")
 
-def parse_subgraph_file(file_path):
+def parse_subgraph_motifs(subgraph_file_path):
+    """
+    parse_subgraph_motifs function reads subgraph_file containing subgraph motifs and parses its content 
+    into a list(motifs = []) of motif dictionaries. Each motif dictionary contains vertices, edges, 
+    and support information. The function opens the subgraph_file produced by gSpan, reads all lines, 
+    and iterates through them. It identifies different parts of the motif based on line prefixes ('t #', 
+    'v', 'e', 'Support:') and constructs the motif dictionary accordingly. Once all lines are processed, 
+
+    Returns: 
+    - list: of motifs.
+    """
     motifs = []
-    with open(file_path, 'r') as file:
+    with open(subgraph_file_path, 'r') as file:
         lines = file.readlines()
         motif = None
         for line in lines:
             if line.startswith('t #'):
                 if motif:
                     motifs.append(motif)
-                motif = {'vertices': [], 'edges': [], 'support': 0}
+                motif = {'vertices': {}, 'edges': [], 'support': 0}
             elif line.startswith('v'):
                 parts = line.split()
-                motif['vertices'].append((int(parts[1]), int(parts[2])))
+                vertex_id = int(parts[1])
+                vertex_label = int(parts[2])
+                motif['vertices'][vertex_id] = vertex_label
             elif line.startswith('e'):
                 parts = line.split()
                 motif['edges'].append((int(parts[1]), int(parts[2]), int(parts[3])))
@@ -175,13 +192,105 @@ def parse_subgraph_file(file_path):
     return motifs
 
 def build_weighted_directed_graph(motifs):
-    G = nx.DiGraph()
+    """
+    Builds two weighted directed graphs from the given motifs: one for positive edges and one for negative edges.
+
+    Parameters:
+    - motifs (list): A list of motif dictionaries.
+
+    Returns:
+    - tuple: Two NetworkX DiGraph objects, one for positive edges and one for negative edges.
+    """
+    G_positive = nx.DiGraph()
+    G_negative = nx.DiGraph()
+    
     for motif in motifs:
-        support = motif['support']
+        vertices = motif['vertices']
         for edge in motif['edges']:
-            frm, to, label = edge
-            if G.has_edge(frm, to):
-                G[frm][to]['weight'] += support
-            else:
-                G.add_edge(frm, to, weight=support)
-    return G
+            frm_id, to_id, label = edge
+            frm_label = vertices[frm_id]
+            to_label = vertices[to_id]
+            
+            if label == 3:  # Positive edge
+                if G_positive.has_edge(frm_label, to_label):
+                    G_positive[frm_label][to_label]['weight'] += 1
+                else:
+                    G_positive.add_edge(frm_label, to_label, weight=1, label=label)
+            elif label == 2:  # Negative edge
+                if G_negative.has_edge(frm_label, to_label):
+                    G_negative[frm_label][to_label]['weight'] += 1
+                else:
+                    G_negative.add_edge(frm_label, to_label, weight=1, label=label)
+    
+    return G_positive, G_negative
+
+def export_patient_merged_subgraphs(base_dir):
+    """
+    Processes patient data stored in a directory structure, builds weighted directed graphs, and saves them as JSON files.
+
+    Parameters:
+    - base_dir (str): The base directory containing patient data.
+    """
+    for category in os.listdir(base_dir):
+        category_path = os.path.join(base_dir, category)
+        if not os.path.isdir(category_path):
+            continue
+        for patient in os.listdir(category_path):
+            patient_path = os.path.join(category_path, patient)
+            if not os.path.isdir(patient_path):
+                continue
+            subgraph_file = os.path.join(patient_path, f"{patient}_subgraphs.txt")
+            if not os.path.isfile(subgraph_file):
+                continue
+            motifs = parse_subgraph_motifs(subgraph_file)
+            
+            G_positive, G_negative = build_weighted_directed_graph(motifs)
+            
+            output_file_js_positive = os.path.join(patient_path, f"{patient}_weighted_graph_positive.json")
+            output_file_js_negative = os.path.join(patient_path, f"{patient}_weighted_graph_negative.json")
+            
+            save_graph_as_json(G_positive, output_file_js_positive)
+            save_graph_as_json(G_negative, output_file_js_negative)
+            
+
+def save_graph_as_json(G, output_file):
+    with open(output_file, 'w') as json_file:
+        json.dump(nx.node_link_data(G, edges="links"), json_file, indent=4)
+    logging.info(f"Graph saved as JSON in {output_file}")
+
+
+def check_vertex_labels(base_dir, output_file):
+    """
+    Iterates through all patients, checks vertex labels, and creates a text file with the numbers
+    that are not in the range of 2-21 along with the patient file name.
+
+    Parameters:
+    - base_dir (str): The base directory containing patient data.
+    - output_file (str): The path to the output text file.
+    """
+    try:
+        with open(output_file, 'w') as out_file:
+            for category in os.listdir(base_dir):
+                category_path = os.path.join(base_dir, category)
+                if not os.path.isdir(category_path):
+                    continue
+                for patient in os.listdir(category_path):
+                    patient_path = os.path.join(category_path, patient)
+                    if not os.path.isdir(patient_path):
+                        continue
+                    subgraph_file = os.path.join(patient_path, f"{patient}_subgraphs.txt")
+                    if not os.path.isfile(subgraph_file):
+                        continue
+                    with open(subgraph_file, 'r') as file:
+                        lines = file.readlines()
+                        for line in lines:
+                            if line.startswith('v'):
+                                parts = line.split()
+                                vertex_label = int(parts[2])
+                                if vertex_label < 2 or vertex_label > 19:
+                                    out_file.write(f"{vertex_label} {patient} {category_path}\n")
+        logging.info(f"Vertex label check completed. Results saved to {output_file}")
+    except Exception as e:
+        logging.error(f"Error in check_vertex_labels: {e}")
+
+

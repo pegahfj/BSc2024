@@ -1,0 +1,6 @@
+{
+    "node_overlap": 0.15384615384615385,
+    "edge_overlap": 0.0,
+    "degree_mean_diff": 0.75,
+    "graph_edit_distance": 9.0
+}
